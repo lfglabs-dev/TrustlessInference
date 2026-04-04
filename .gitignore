@@ -43,6 +43,9 @@ yarn-error.log*
 /cache
 /typechain-types
 
+# playwright
+.playwright-mcp/
+
 # vercel
 .vercel
 

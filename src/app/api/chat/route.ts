@@ -8,6 +8,11 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateAttestation, computeModelHash } from "@/lib/tee";
 import { createPublicClient, http } from "viem";
 import { MODEL_REGISTRY_ABI, MODEL_REGISTRY_ADDRESS } from "@/lib/contracts";
+import {
+  checkBalance,
+  getInferenceCost,
+  submitProofOnChain,
+} from "@/lib/gateway";
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -22,6 +27,24 @@ export async function POST(req: Request) {
   const messages: UIMessage[] = body.messages ?? [];
   const model: string = body.model ?? "anthropic/claude-opus-4.6";
   const userAddress: string = body.userAddress ?? "0x0";
+
+  // Balance check: ensure user can pay before running inference
+  if (userAddress !== "0x0") {
+    try {
+      const [balance, cost] = await Promise.all([
+        checkBalance(userAddress as `0x${string}`),
+        getInferenceCost(),
+      ]);
+      if (balance < cost) {
+        return Response.json(
+          { error: "Insufficient balance. Please deposit USDT first." },
+          { status: 402 }
+        );
+      }
+    } catch {
+      // If gateway not available, allow inference (dev mode)
+    }
+  }
 
   // Model verification: check on-chain registry
   let onChainHash: string;
@@ -73,13 +96,31 @@ export async function POST(req: Request) {
                 .map((p) => p.text)
                 .join("") ?? "",
           })),
-          onFinish({ text }) {
-            const attestation = generateAttestation(
+          async onFinish({ text }) {
+            const attestation = await generateAttestation(
               promptText,
               text,
-              onChainHash
+              onChainHash,
+              userAddress as `0x${string}`
             );
-            // Write attestation as a data part
+
+            // Submit proof on-chain
+            if (userAddress !== "0x0") {
+              try {
+                const txHash = await submitProofOnChain(
+                  userAddress as `0x${string}`,
+                  attestation.input_hash as `0x${string}`,
+                  attestation.output_hash as `0x${string}`,
+                  attestation.model_hash as `0x${string}`,
+                  BigInt(attestation.timestamp),
+                  attestation.signature as `0x${string}`
+                );
+                attestation.tx_hash = txHash;
+              } catch (e) {
+                console.error("Failed to submit proof on-chain:", e);
+              }
+            }
+
             writer.write({
               type: "data-attestation",
               data: attestation,

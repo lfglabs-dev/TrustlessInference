@@ -17,8 +17,8 @@ function useAppKitInit() {
       projectId,
       networks: [coston2],
       metadata: {
-        name: "Flare TEE Marketplace",
-        description: "Verifiable AI inference marketplace powered by Flare TEE",
+        name: "Trustless AI",
+        description: "Verifiable AI inference with TEE attestation",
         url: window.location.origin,
         icons: [],
       },

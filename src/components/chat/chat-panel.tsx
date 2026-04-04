@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Send } from "lucide-react";
+import Image from "next/image";
 import { ChatMessage } from "./chat-message";
 import { useModel } from "./model-context";
 import { TeeStatus } from "./tee-status";
@@ -21,13 +22,21 @@ export function ChatPanel() {
   const { address } = useAccount();
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const modelRef = useRef(model);
+  const addressRef = useRef(address);
+  modelRef.current = model;
+  addressRef.current = address;
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
-        body: { model, userAddress: address ?? "0x0" },
+        body: () => ({
+          model: modelRef.current,
+          userAddress: addressRef.current ?? "0x0",
+        }),
       }),
-    [model, address]
+    []
   );
 
   const { messages, sendMessage, status } = useChat({
@@ -87,15 +96,22 @@ export function ChatPanel() {
   );
 
   return (
-    <div className="flex flex-1 flex-col">
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-        <div className="mx-auto max-w-2xl space-y-1">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ScrollArea className="min-h-0 flex-1 p-4" ref={scrollRef}>
+        <div className={`mx-auto max-w-2xl space-y-1 ${messages.length === 0 ? "flex min-h-[calc(100vh-8rem)] items-center justify-center" : ""}`}>
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <p className="text-lg font-medium">Verifiable AI Inference</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Select a model and send a message. Every response is attested by
-                a mocked TEE.
+            <div className="flex flex-col items-center text-center">
+              <Image
+                src="/flare-logo.png"
+                alt="Flare"
+                width={30}
+                height={30}
+                className="mb-4"
+              />
+              <h1 className="font-heading text-5xl font-bold">Trustless AI</h1>
+              <p className="mt-4 text-sm text-muted-foreground">
+                Pick a model, ask anything. Every answer comes with a
+                cryptographic proof from a TEE.
               </p>
             </div>
           )}

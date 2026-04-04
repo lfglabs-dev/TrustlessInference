@@ -3,8 +3,8 @@
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import {
-  PAYMENT_GATEWAY_ADDRESS,
-  PAYMENT_GATEWAY_ABI,
+  INFERENCE_GATEWAY_ADDRESS,
+  INFERENCE_GATEWAY_ABI,
   USDT0_ADDRESS,
   ERC20_ABI,
 } from "@/lib/contracts";
@@ -30,7 +30,7 @@ export function useDeposit() {
       address: USDT0_ADDRESS,
       abi: ERC20_ABI,
       functionName: "approve",
-      args: [PAYMENT_GATEWAY_ADDRESS, parsed],
+      args: [INFERENCE_GATEWAY_ADDRESS, parsed],
     });
     setTxHash(approveTx);
     await waitForTransactionReceipt(wagmiConfig, { hash: approveTx });
@@ -38,8 +38,8 @@ export function useDeposit() {
     // Step 2: Deposit after approval is confirmed
     setStep("depositing");
     const depositTx = await writeContractAsync({
-      address: PAYMENT_GATEWAY_ADDRESS,
-      abi: PAYMENT_GATEWAY_ABI,
+      address: INFERENCE_GATEWAY_ADDRESS,
+      abi: INFERENCE_GATEWAY_ABI,
       functionName: "deposit",
       args: [parsed],
     });

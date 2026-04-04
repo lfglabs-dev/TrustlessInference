@@ -1,6 +1,6 @@
-# Verifiable AI Inference with On-Chain Payment on Flare
+# Verifiable AI Inference with On-Chain Proof on Flare
 
-> "If a provider sells you Opus but serves you Sonnet, you have cryptographic proof of fraud."
+> "If a provider sells you Opus but serves you Sonnet, you have cryptographic proof of fraud — stored permanently on-chain."
 
 ## The Problem
 
@@ -10,7 +10,7 @@ Users of AI inference APIs have **no way to verify** which model actually served
 
 ### 1. Model Registry (On-Chain)
 
-Every model the marketplace offers is registered on Flare with its cryptographic identity — a hash of the model weights. Anyone can query the registry to verify which models are authorized and what their weight hashes are.
+Every model is registered on Flare with its cryptographic identity — a keccak256 hash of the model name/weights. Anyone can query the registry to verify which models are authorized.
 
 ```
 ModelRegistry (Flare Coston2)
@@ -18,33 +18,127 @@ ModelRegistry (Flare Coston2)
 └── "google/gemini-2.5-flash"   → 0x9a3f1e...
 ```
 
-### 2. Payment Gateway (On-Chain)
+### 2. Inference Gateway (On-Chain)
 
-Users deposit USDT into a smart contract. The server deducts per-inference charges. All balances and charges emit on-chain events — **fully auditable, no hidden fees, no billing disputes**.
+Users deposit USDT into a smart contract. After each inference, the TEE server submits an ECDSA-signed proof on-chain. The contract **verifies the signature**, **stores the proof permanently**, and **deducts the inference cost** — all in a single atomic transaction.
 
 ```
-User deposits 10 USDT → PaymentGateway.deposit()
-Server charges 0.10 USDT → PaymentGateway.deductBalance()
-User can verify every charge on-chain ✓
+User deposits 10 USDT  →  InferenceGateway.deposit()
+User sends prompt       →  TEE runs inference
+TEE submits proof       →  InferenceGateway.submitProof()
+                            ├── ecrecover(sig) == teeAddress?  ✓ verified
+                            ├── store proof on-chain            ✓ permanent
+                            └── deduct 0.10 USDT                ✓ auditable
 ```
 
 ### 3. TEE Attestation (Cryptographic Proof)
 
-Every inference response includes an attestation from a Trusted Execution Environment:
+Every inference response includes an ECDSA-signed attestation with an on-chain transaction hash:
 
 ```json
 {
-  "tee_platform": "flare-fce-v1",
+  "tee_platform": "flare-fce-mock-v1",
   "enclave_hash": "0xadf9bc...",
   "input_hash": "0x7a04e5...",
   "output_hash": "0xd67050...",
   "model_hash": "0x00482d...",
   "timestamp": 1775292781,
-  "signature": "0xbf4d4a..."
+  "signature": "0x5192618927e6...",
+  "tx_hash": "0x85968169609456e5..."
 }
 ```
 
-The `model_hash` can be cross-referenced against the on-chain Model Registry to prove which model was actually used.
+The `model_hash` is cross-referenced against the on-chain Model Registry. The `tx_hash` links to the permanent on-chain proof that anyone can verify on the block explorer.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         FLARE COSTON2                                │
+│                                                                     │
+│  ┌─────────────────┐  ┌──────────────────────────────────────────┐  │
+│  │  ModelRegistry   │  │  InferenceGateway                        │  │
+│  │                  │  │                                          │  │
+│  │  registerModel() │  │  deposit(amount)                         │  │
+│  │  getModelHash()  │  │  submitProof(user, hashes, sig)          │  │
+│  │                  │  │    ├── ecrecover → must match teeAddress  │  │
+│  │  Maps model name │  │    ├── balances[user] -= inferenceCost   │  │
+│  │  to weight hash  │  │    └── proofs[id] = {user, hashes, ts}  │  │
+│  │                  │  │  getUserProofCount(user)                  │  │
+│  │                  │  │  getUserProofAt(user, index)              │  │
+│  └─────────────────┘  └──────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+         ▲                          ▲                    ▲
+         │ verify model             │ submit proof       │ deposit USDT
+         │                          │                    │
+┌────────┴──────────────────────────┴────────┐    ┌──────┴──────────┐
+│           TEE SERVER (Next.js)              │    │    USER WALLET   │
+│                                             │    │    (Reown AppKit)│
+│  /api/chat                                  │    │                  │
+│    1. Check balance ≥ cost                  │    │  approve()       │
+│    2. Verify model hash on-chain            │    │  deposit()       │
+│    3. Stream inference (OpenRouter)         │    │                  │
+│    4. Sign attestation (ECDSA)              │    └──────────────────┘
+│    5. Submit proof on-chain (submitProof)   │
+│    6. Return response + tx_hash             │
+│                                             │
+│  TEE_SIGNER_PRIVATE_KEY                     │
+│  (hardware-backed in production)            │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## End-to-End Flow
+
+```
+  USER                       TEE SERVER                    FLARE COSTON2
+   │                              │                              │
+   │                              │                              │
+   │  ┌─── DEPOSIT (one-time) ────┼──────────────────────────────┤
+   │  │                           │                              │
+   │  │  1. approve(gateway, amt)─┼──────────────────────────────>│ USDT0
+   │  │  2. deposit(amt) ────────-┼──────────────────────────────>│ InferenceGateway
+   │  │                           │                      balances[user] += amt
+   │  │                           │                              │
+   │  └──────────────────────────-┼──────────────────────────────┤
+   │                              │                              │
+   │  ┌─── INFERENCE (per msg) ───┤                              │
+   │  │                           │                              │
+   │  │  3. POST /api/chat ──────>│                              │
+   │  │     {prompt, model, addr} │                              │
+   │  │                           │  4. checkBalance(user) ─────>│ balances[user]
+   │  │                           │  <── balance ≥ cost? ────────│
+   │  │                           │                              │
+   │  │                           │  5. getModelHash(model) ────>│ ModelRegistry
+   │  │                           │  <── hash matches? ─────────│
+   │  │                           │                              │
+   │  │                           │  6. Stream inference          │
+   │  │  <── streaming tokens ────│     (OpenRouter API)         │
+   │  │                           │                              │
+   │  │                           │  7. Sign attestation (ECDSA) │
+   │  │                           │     sig = sign(user +        │
+   │  │                           │       promptHash +           │
+   │  │                           │       responseHash +         │
+   │  │                           │       modelHash + timestamp) │
+   │  │                           │                              │
+   │  │                           │  8. submitProof(sig) ───────>│ InferenceGateway
+   │  │                           │                      ecrecover(sig) == teeAddress ✓
+   │  │                           │                      store proof on-chain ✓
+   │  │                           │                      balances[user] -= 0.10 USDT ✓
+   │  │                           │  <── tx_hash ───────────────│
+   │  │                           │                              │
+   │  │  <── attestation + ──────│                              │
+   │  │      tx_hash              │                              │
+   │  │                           │                              │
+   │  └──────────────────────────-┤                              │
+   │                              │                              │
+   │  9. Click tx_hash link       │                              │
+   │     → Coston2 Explorer       │                              │
+   │     → Proof visible on-chain │                              │
+```
 
 ---
 
@@ -57,65 +151,25 @@ The `model_hash` can be cross-referenced against the on-chain Model Registry to 
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
 │  │  Encrypted    │    │  Inference   │    │  Attestation │  │
 │  │  Model Weights│───>│  Runtime     │───>│  Generator   │  │
-│  │  (decrypted   │    │  (auditable  │    │  (signed by  │  │
-│  │   inside only)│    │   code)      │    │   hardware)  │  │
+│  │  (decrypted   │    │  (auditable  │    │  (ECDSA sign │  │
+│  │   inside only)│    │   code)      │    │   + on-chain │  │
+│  │              │    │              │    │   submission) │  │
 │  └──────────────┘    └──────────────┘    └──────────────┘  │
 │         ^                    |                    |          │
 └─────────|────────────────────|────────────────────|──────────┘
           |                    |                    |
     CAN'T EXTRACT        CAN'T TAMPER         CAN'T FORGE
-    (hardware seal)      (hash changes)       (HW signature)
+    (hardware seal)      (hash changes)       (ECDSA + on-chain)
           |                    |                    |
           v                    v                    v
    ┌─────────────┐    ┌──────────────┐    ┌──────────────────┐
    │ Model        │    │ Server       │    │ User / On-Chain  │
    │ Provider     │    │ Operator     │    │ Verifier         │
-   │ (Anthropic)  │    │ (can't see   │    │ (checks hash     │
-   │ weights safe │    │  weights or  │    │  against Model   │
-   │              │    │  lie about   │    │  Registry)       │
+   │ (Anthropic)  │    │ (can't see   │    │ (checks proof    │
+   │ weights safe │    │  weights or  │    │  on block        │
+   │              │    │  lie about   │    │  explorer)       │
    │              │    │  the model)  │    │                  │
    └─────────────┘    └──────────────┘    └──────────────────┘
-```
-
-**For model providers (e.g., Anthropic):** Their proprietary weights are encrypted and only decrypted inside the TEE's protected memory. The server operator physically cannot extract them — this is a hardware guarantee, not a software promise.
-
-**For users:** The TEE produces a hardware-signed attestation proving which model weights were loaded and what output was generated. This can be verified against the on-chain registry.
-
-**For the server operator:** They provide the infrastructure but cannot tamper with the inference or forge attestations. The CPU's signing keys are burned into silicon.
-
----
-
-## End-to-End Flow
-
-```
-  USER                    SERVER (TEE)              BLOCKCHAIN
-   |                          |                         |
-   |  1. Deposit USDT --------+------------------------>| PaymentGateway
-   |                          |                         |   .deposit()
-   |  2. Send prompt -------->|                         |
-   |                          |  3. Verify model hash ->| ModelRegistry
-   |                          |  <- hash matches -------|   .getModelHash()
-   |                          |                         |
-   |                          |  4. Run inference       |
-   |                          |     inside TEE enclave  |
-   |                          |     (weights sealed)    |
-   |                          |                         |
-   |                          |  5. Generate attestation|
-   |                          |     {input_hash,        |
-   |                          |      output_hash,       |
-   |                          |      model_hash,        |
-   |                          |      HW_signature}      |
-   |                          |                         |
-   |  <-- 6. Response + -----|                         |
-   |       attestation        |                         |
-   |                          |  7. Charge user ------->| PaymentGateway
-   |                          |                         |   .deductBalance()
-   |                          |                         |
-   |  8. Verify attestation   |                         |
-   |     - model_hash matches |                         |
-   |       on-chain registry? +------------------------>| ModelRegistry
-   |     - HW signature valid?|                         |
-   |     VERIFIED             |                         |
 ```
 
 ---
@@ -135,14 +189,31 @@ The `model_hash` can be cross-referenced against the on-chain Model Registry to 
   On-chain registry:                 On-chain registry:
   "opus" -> 0xAAA...                 "opus" -> 0xAAA...
 
-  Attestation model_hash:            Attestation model_hash:
-  0xAAA...                           0xBBB...
-
-  0xAAA == 0xAAA  MATCH              0xBBB != 0xAAA  MISMATCH
-  User got what they paid for        FRAUD DETECTED
+  submitProof(model_hash=0xAAA)      submitProof(model_hash=0xBBB)
+  Contract: 0xAAA == 0xAAA MATCH     Contract: 0xBBB != 0xAAA MISMATCH
+  Proof stored on-chain              FRAUD DETECTED — provable on-chain
 ```
 
-The TEE **cannot lie** about which weights it loaded. If different weights are loaded, the hash changes, and the mismatch with the on-chain registry is cryptographic proof of fraud.
+---
+
+## On-Chain Proof Verification
+
+Every inference creates a permanent, queryable proof on Flare:
+
+```
+Proof #1 (on-chain)
+├── user:         0x88Ff...
+├── promptHash:   0x7a04e5...  ← keccak256 of "What is Flare?"
+├── responseHash: 0xd67050...  ← keccak256 of the AI response
+├── modelHash:    0x00482d...  ← matches ModelRegistry entry
+├── timestamp:    1775292781
+└── tx_hash:      0x859681...  ← viewable on Coston2 Explorer
+```
+
+Anyone can verify:
+1. **Was the right model used?** Compare `modelHash` against `ModelRegistry.getModelHash()`
+2. **Was the response tampered with?** Recompute `keccak256(response)` and compare to `responseHash`
+3. **Was the proof signed by the TEE?** The contract already verified this via `ecrecover` — if the tx succeeded, the signature is valid
 
 ---
 
@@ -150,28 +221,26 @@ The TEE **cannot lie** about which weights it loaded. If different weights are l
 
 ### Why can't the server operator fake the attestation?
 
-The attestation is signed by the **CPU hardware** (Intel SGX/TDX), not by software. The server operator controls the machine but NOT the TEE's signing keys — those are burned into the silicon by Intel. Forging an attestation would require breaking the CPU's hardware security.
+In production, the attestation is signed by the **CPU hardware** (Intel TDX via GCP Confidential Space), not by software. The server operator controls the machine but NOT the TEE's signing keys. For this demo, we simulate the TEE signer with a server-side keypair, but the on-chain verification (ECDSA ecrecover) is real.
 
 ### Why can't the server operator steal the model weights?
 
-The weights are decrypted ONLY inside the enclave's protected memory region. The host OS, hypervisor, and server operator cannot read enclave memory — this is enforced by the CPU hardware, not by software.
-
-### Don't the model weights need to be open source for this to work?
-
-**No.** That's the beauty of TEEs. The model provider (e.g., Anthropic) encrypts their weights with a key only the TEE can access. The weights are decrypted inside the sealed enclave, used for inference, and never exposed. The provider publishes only the **weight hash** — enough for users to verify model identity, but revealing nothing about the weights themselves.
+The weights are decrypted ONLY inside the enclave's protected memory region. The host OS, hypervisor, and server operator cannot read enclave memory — this is enforced by the CPU hardware.
 
 ### What's mocked vs. real in this demo?
 
 | Component | Status |
 |-----------|--------|
 | ModelRegistry contract | **Real** — deployed on Flare Coston2 |
-| PaymentGateway contract | **Real** — USDT deposits and charges work |
+| InferenceGateway contract | **Real** — deposits, proof verification, balance deduction |
+| ECDSA signature verification | **Real** — contract verifies via ecrecover |
+| On-chain proof storage | **Real** — every inference creates a permanent proof |
+| Balance deduction | **Real** — 0.10 USDT deducted per inference |
 | USDT token integration | **Real** — ERC20 approve + deposit pattern |
-| TEE attestation structure | **Real** — correct format and field semantics |
-| TEE hardware signature | **Mocked** — uses keccak256 instead of CPU signing |
-| Enclave execution | **Mocked** — inference runs server-side, not in TEE |
+| TEE hardware enclave | **Mocked** — inference runs server-side, not in GCP Confidential Space |
+| TEE signer key | **Mocked** — uses server-side keypair instead of vTPM hardware key |
 
-In production, Flare's FCE (Confidential Execution) replaces the mock attestation with real hardware-backed attestation.
+In production, the server runs inside **GCP Confidential Space** (Intel TDX) using Flare's **flare-ai-kit** SDK. The vTPM provides hardware-backed attestation tokens that replace the server-side ECDSA signer. The on-chain contract and verification logic remain identical.
 
 ---
 
@@ -179,9 +248,9 @@ In production, Flare's FCE (Confidential Execution) replaces the mock attestatio
 
 | Contract | Address |
 |----------|---------|
-| ModelRegistry | `0xEA7a4A308cb29E5b0De901138d79afB3951EB3db` |
-| PaymentGateway | `0x0598D7d4c9D847B99eC1321B002B4cFfb1BEB130` |
-| USDT | `0xC1A5B41512496B80903D1f32d6dEa3a73212E71F` |
+| ModelRegistry | `0xa0c9336d297417555A58a5a93ec2764171d1050B` |
+| InferenceGateway | `0xb35588BC2B06bd8d1064EfCA224b8fdf3b928AFb` |
+| USDT0 | `0xC1A5B41512496B80903D1f32d6dEa3a73212E71F` |
 
 Explorer: https://coston2-explorer.flare.network
 
@@ -199,8 +268,20 @@ bun run dev
 # Deploy contracts to Coston2
 bun run deploy:coston2
 
-# Run E2E on-chain test
+# Run E2E on-chain test (16 tests)
 bun run test:e2e:coston2
+```
+
+### Environment Variables
+
+```bash
+OPENROUTER_API_KEY=             # AI inference via OpenRouter
+DEPLOYER_PRIVATE_KEY=           # Contract deployment
+TEE_SIGNER_PRIVATE_KEY=         # TEE server wallet (signs attestations + submits proofs)
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
+NEXT_PUBLIC_MODEL_REGISTRY_ADDRESS=
+NEXT_PUBLIC_INFERENCE_GATEWAY_ADDRESS=
+NEXT_PUBLIC_USDT0_ADDRESS=
 ```
 
 ## Tech Stack
@@ -208,6 +289,7 @@ bun run test:e2e:coston2
 - **Frontend:** Next.js 16, React 19, Tailwind CSS, shadcn/ui
 - **Blockchain:** Solidity 0.8.24, Hardhat, wagmi, viem
 - **Wallet:** Reown AppKit (WalletConnect)
-- **AI:** OpenRouter (Claude Opus, Gemini Flash)
+- **AI:** OpenRouter (Claude Opus 4.6, Gemini 2.5 Flash)
 - **Network:** Flare Coston2 Testnet (Chain 114)
+- **TEE (Production):** GCP Confidential Space, Intel TDX, flare-ai-kit
 - **Secrets:** dotenvx encrypted environment

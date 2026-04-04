@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronUp, ShieldCheck, ExternalLink } from "lucide-react";
 import type { Attestation } from "@/lib/tee";
 
 interface AttestationCardProps {
@@ -30,6 +30,14 @@ export function AttestationCard({ attestation }: AttestationCardProps) {
             >
               Verified
             </Badge>
+            {attestation.tx_hash && (
+              <Badge
+                variant="outline"
+                className="border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400"
+              >
+                On-Chain
+              </Badge>
+            )}
             <span className="text-xs text-muted-foreground">
               TEE Attestation
             </span>
@@ -41,9 +49,22 @@ export function AttestationCard({ attestation }: AttestationCardProps) {
           )}
         </Button>
         {expanded && (
-          <pre className="mt-3 overflow-x-auto rounded-md bg-muted p-3 text-xs leading-relaxed">
-            {JSON.stringify(attestation, null, 2)}
-          </pre>
+          <div className="mt-3 space-y-2">
+            {attestation.tx_hash && (
+              <a
+                href={`https://coston2-explorer.flare.network/tx/${attestation.tx_hash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-blue-500 hover:underline"
+              >
+                View on-chain proof
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs leading-relaxed">
+              {JSON.stringify(attestation, null, 2)}
+            </pre>
+          </div>
         )}
       </CardContent>
     </Card>
