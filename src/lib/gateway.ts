@@ -30,9 +30,16 @@ const teePrivateKey = process.env.TEE_SIGNER_PRIVATE_KEY as
   | `0x${string}`
   | undefined;
 
-export const teeAccount = teePrivateKey
-  ? privateKeyToAccount(teePrivateKey)
-  : null;
+function createTeeAccount() {
+  if (!teePrivateKey || !teePrivateKey.startsWith("0x")) return null;
+  try {
+    return privateKeyToAccount(teePrivateKey);
+  } catch {
+    return null;
+  }
+}
+
+export const teeAccount = createTeeAccount();
 
 export const teePublicClient = createPublicClient({
   chain: coston2,
