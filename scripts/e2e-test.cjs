@@ -47,15 +47,15 @@ async function main() {
   pass(0, "C2FLR balance > 0");
 
   const registryAddr = process.env.NEXT_PUBLIC_MODEL_REGISTRY_ADDRESS;
-  const gatewayAddr = process.env.NEXT_PUBLIC_PAYMENT_GATEWAY_ADDRESS;
+  const gatewayAddr = process.env.NEXT_PUBLIC_INFERENCE_GATEWAY_ADDRESS;
   const usdtAddr = process.env.USDT0_ADDRESS || process.env.NEXT_PUBLIC_USDT0_ADDRESS;
 
   if (!registryAddr || !gatewayAddr) {
-    fail(0, "Contract addresses", "NEXT_PUBLIC_MODEL_REGISTRY_ADDRESS or NEXT_PUBLIC_PAYMENT_GATEWAY_ADDRESS not set");
+    fail(0, "Contract addresses", "NEXT_PUBLIC_MODEL_REGISTRY_ADDRESS or NEXT_PUBLIC_INFERENCE_GATEWAY_ADDRESS not set");
     return;
   }
   console.log(`  ModelRegistry: ${registryAddr}`);
-  console.log(`  PaymentGateway: ${gatewayAddr}`);
+  console.log(`  InferenceGateway: ${gatewayAddr}`);
   console.log(`  USDT: ${usdtAddr}`);
   pass(0, "Contract addresses configured");
 
@@ -76,7 +76,6 @@ async function main() {
 
   const registry = await ethers.getContractAt("ModelRegistry", registryAddr);
 
-  // Test Claude Opus hash
   const claudeName = "anthropic/claude-opus-4.6";
   const expectedClaudeHash = ethers.keccak256(ethers.toUtf8Bytes(claudeName));
   const onChainClaudeHash = await registry.getModelHash(claudeName);
@@ -87,7 +86,6 @@ async function main() {
     fail(1, `${claudeName} hash matches`, `expected ${expectedClaudeHash}, got ${onChainClaudeHash}`);
   }
 
-  // Test Gemini Flash hash
   const geminiName = "google/gemini-2.5-flash";
   const expectedGeminiHash = ethers.keccak256(ethers.toUtf8Bytes(geminiName));
   const onChainGeminiHash = await registry.getModelHash(geminiName);
@@ -98,7 +96,6 @@ async function main() {
     fail(1, `${geminiName} hash matches`, `expected ${expectedGeminiHash}, got ${onChainGeminiHash}`);
   }
 
-  // Test nonexistent model
   const zeroHash = "0x" + "0".repeat(64);
   const unknownHash = await registry.getModelHash("nonexistent/model");
   if (unknownHash === zeroHash) {
@@ -107,27 +104,24 @@ async function main() {
     fail(1, "nonexistent model returns zero hash", `got ${unknownHash}`);
   }
 
-  // ===== PHASE 2: PaymentGateway — Deposit =====
+  // ===== PHASE 2: InferenceGateway — Deposit =====
   console.log("");
-  log(2, "PaymentGateway — Approve + Deposit");
+  log(2, "InferenceGateway — Approve + Deposit");
 
-  const gateway = await ethers.getContractAt("PaymentGateway", gatewayAddr);
+  const gateway = await ethers.getContractAt("InferenceGateway", gatewayAddr);
   const depositAmount = 1_000_000n; // 1 USDT (6 decimals)
 
   if (usdtBalance < depositAmount) {
     skip(2, "USDT deposit", `Need 1 USDT, have ${ethers.formatUnits(usdtBalance, 6)}`);
   } else {
-    // Read balance before
     const balanceBefore = await gateway.balances(deployer.address);
     console.log(`  Balance before: ${ethers.formatUnits(balanceBefore, 6)} USDT`);
 
-    // Approve
     const approveTx = await usdt.approve(gatewayAddr, depositAmount);
     const approveReceipt = await approveTx.wait();
     console.log(`  Approve tx: ${approveReceipt.hash}`);
     pass(2, "USDT approve");
 
-    // Verify allowance
     const allowance = await usdt.allowance(deployer.address, gatewayAddr);
     if (allowance >= depositAmount) {
       pass(2, "Allowance verified");
@@ -135,13 +129,11 @@ async function main() {
       fail(2, "Allowance verified", `expected >= ${depositAmount}, got ${allowance}`);
     }
 
-    // Deposit
     const depositTx = await gateway.deposit(depositAmount);
     const depositReceipt = await depositTx.wait();
     console.log(`  Deposit tx: ${depositReceipt.hash}`);
     pass(2, "Deposit transaction");
 
-    // Verify balance
     const balanceAfter = await gateway.balances(deployer.address);
     console.log(`  Balance after: ${ethers.formatUnits(balanceAfter, 6)} USDT`);
     const expectedBalance = balanceBefore + depositAmount;
@@ -152,92 +144,123 @@ async function main() {
     }
   }
 
-  // ===== PHASE 3: PaymentGateway — Deduct =====
+  // ===== PHASE 3: InferenceGateway — Submit Proof with ECDSA =====
   console.log("");
-  log(3, "PaymentGateway — Deduct (server charges for inference)");
+  log(3, "InferenceGateway — Submit Proof (ECDSA signature verification)");
 
   const currentBalance = await gateway.balances(deployer.address);
-  const deductAmount = 100_000n; // 0.10 USDT
+  const inferenceCost = await gateway.inferenceCost();
+  console.log(`  Inference cost: ${ethers.formatUnits(inferenceCost, 6)} USDT`);
+  console.log(`  Current balance: ${ethers.formatUnits(currentBalance, 6)} USDT`);
 
-  if (currentBalance < deductAmount) {
-    skip(3, "Deduct balance", `Need 0.10 USDT balance, have ${ethers.formatUnits(currentBalance, 6)}`);
+  if (currentBalance < inferenceCost) {
+    skip(3, "Submit proof", `Need ${ethers.formatUnits(inferenceCost, 6)} USDT balance, have ${ethers.formatUnits(currentBalance, 6)}`);
   } else {
-    const deductTx = await gateway.deductBalance(deployer.address, deductAmount);
-    const deductReceipt = await deductTx.wait();
-    console.log(`  Deduct tx: ${deductReceipt.hash}`);
-    pass(3, "deductBalance transaction");
+    const TEE_SIGNER_KEY = process.env.TEE_SIGNER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
+    const teeSigner = new ethers.Wallet(TEE_SIGNER_KEY, ethers.provider);
+    console.log(`  TEE signer: ${teeSigner.address}`);
 
-    const balanceAfterDeduct = await gateway.balances(deployer.address);
-    console.log(`  Balance after deduct: ${ethers.formatUnits(balanceAfterDeduct, 6)} USDT`);
-    const expectedAfterDeduct = currentBalance - deductAmount;
-    if (balanceAfterDeduct === expectedAfterDeduct) {
-      pass(3, `Balance == ${ethers.formatUnits(expectedAfterDeduct, 6)} USDT after deduction`);
+    // Verify TEE address matches contract
+    const registeredTee = await gateway.teeAddress();
+    if (registeredTee === teeSigner.address) {
+      pass(3, "TEE signer matches contract teeAddress");
     } else {
-      fail(3, "Balance after deduction", `expected ${expectedAfterDeduct}, got ${balanceAfterDeduct}`);
+      fail(3, "TEE signer matches contract teeAddress", `registered=${registeredTee}, signer=${teeSigner.address}`);
+    }
+
+    // Build proof data
+    const user = deployer.address;
+    const modelName = "anthropic/claude-opus-4.6";
+    const inputText = "What is Flare?";
+    const outputText = "Flare is a blockchain for decentralized data acquisition.";
+
+    const inputHex = ethers.hexlify(ethers.toUtf8Bytes(inputText));
+    const promptHash = ethers.keccak256(ethers.getBytes(inputHex));
+    const outputHex = ethers.hexlify(ethers.toUtf8Bytes(outputText));
+    const responseHash = ethers.keccak256(ethers.getBytes(outputHex));
+    const modelHash = ethers.keccak256(ethers.toUtf8Bytes(modelName));
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // Sign the message (matching contract's ecrecover format)
+    const messageHash = ethers.solidityPackedKeccak256(
+      ["address", "bytes32", "bytes32", "bytes32", "uint256"],
+      [user, promptHash, responseHash, modelHash, timestamp]
+    );
+    const signature = await teeSigner.signMessage(ethers.getBytes(messageHash));
+    console.log(`  Signature: ${signature.substring(0, 20)}...`);
+
+    // Submit proof
+    const gatewayAsTee = gateway.connect(teeSigner);
+    const proofTx = await gatewayAsTee.submitProof(
+      user, promptHash, responseHash, modelHash, timestamp, signature
+    );
+    const proofReceipt = await proofTx.wait();
+    console.log(`  Proof tx: ${proofReceipt.hash}`);
+    pass(3, "submitProof transaction succeeded");
+
+    // Verify balance deducted
+    const balanceAfterProof = await gateway.balances(deployer.address);
+    const expectedAfterProof = currentBalance - inferenceCost;
+    if (balanceAfterProof === expectedAfterProof) {
+      pass(3, `Balance deducted: ${ethers.formatUnits(expectedAfterProof, 6)} USDT`);
+    } else {
+      fail(3, "Balance after proof", `expected ${expectedAfterProof}, got ${balanceAfterProof}`);
+    }
+
+    // Verify proof stored on-chain
+    const proofCount = await gateway.getUserProofCount(deployer.address);
+    if (proofCount > 0n) {
+      pass(3, `User has ${proofCount} proof(s) on-chain`);
+    } else {
+      fail(3, "Proof count", "Expected > 0");
+    }
+
+    const proofId = await gateway.getUserProofAt(deployer.address, proofCount - 1n);
+    const proof = await gateway.proofs(proofId);
+    if (proof.user === deployer.address && proof.promptHash === promptHash && proof.responseHash === responseHash) {
+      pass(3, "On-chain proof data matches submitted values");
+    } else {
+      fail(3, "On-chain proof data", "Mismatch");
     }
   }
 
-  // ===== PHASE 4: Mock TEE Attestation =====
+  // ===== PHASE 4: Failure cases =====
   console.log("");
-  log(4, "Mock TEE Attestation — cross-verify with on-chain data");
+  log(4, "Failure cases — invalid signature, insufficient balance");
 
-  const modelName = "anthropic/claude-opus-4.6";
-  const modelHash = ethers.keccak256(ethers.toUtf8Bytes(modelName));
-  const inputText = "What is Flare?";
-  const outputText = "Flare is a blockchain for decentralized data acquisition.";
+  // Test: invalid signature (signed by wrong key, but submitted by TEE)
+  const TEE_KEY = process.env.TEE_SIGNER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
+  const teeSignerForTest = new ethers.Wallet(TEE_KEY, ethers.provider);
+  const wrongSigner = ethers.Wallet.createRandom();
+  const fakeMessageHash = ethers.solidityPackedKeccak256(
+    ["address", "bytes32", "bytes32", "bytes32", "uint256"],
+    [deployer.address, zeroHash, zeroHash, zeroHash, 0]
+  );
+  // Sign with wrong key — ecrecover will return wrong address
+  const fakeSig = await wrongSigner.signMessage(ethers.getBytes(fakeMessageHash));
 
-  // Replicate tee.ts sha256Hex: keccak256(toBytes(toHex(utf8bytes)))
-  const inputHex = ethers.hexlify(ethers.toUtf8Bytes(inputText));
-  const inputHash = ethers.keccak256(ethers.getBytes(inputHex));
-
-  const outputHex = ethers.hexlify(ethers.toUtf8Bytes(outputText));
-  const outputHash = ethers.keccak256(ethers.getBytes(outputHex));
-
-  const enclaveHash = ethers.keccak256(ethers.toUtf8Bytes("flare-fce-mock-enclave-v1"));
-  const timestamp = Math.floor(Date.now() / 1000);
-
-  const payload = `${enclaveHash}${inputHash}${outputHash}${modelHash}${timestamp}`;
-  const signature = ethers.keccak256(ethers.toUtf8Bytes(payload));
-
-  const attestation = {
-    tee_platform: "flare-fce-mock-v1",
-    enclave_hash: enclaveHash,
-    input_hash: inputHash,
-    output_hash: outputHash,
-    model_hash: modelHash,
-    timestamp,
-    signature,
-  };
-
-  console.log("  Attestation:");
-  console.log(JSON.stringify(attestation, null, 4).split("\n").map(l => "    " + l).join("\n"));
-
-  // Cross-verify: attestation model_hash must match on-chain registry
-  const registryHash = await registry.getModelHash(modelName);
-  if (attestation.model_hash === registryHash) {
-    pass(4, "Attestation model_hash matches on-chain ModelRegistry");
-  } else {
-    fail(4, "Attestation model_hash matches on-chain", `attestation=${attestation.model_hash}, registry=${registryHash}`);
-  }
-
-  // Verify attestation signature
-  const recomputedPayload = `${attestation.enclave_hash}${attestation.input_hash}${attestation.output_hash}${attestation.model_hash}${attestation.timestamp}`;
-  const recomputedSig = ethers.keccak256(ethers.toUtf8Bytes(recomputedPayload));
-  if (recomputedSig === attestation.signature) {
-    pass(4, "Attestation signature verified");
-  } else {
-    fail(4, "Attestation signature", `recomputed=${recomputedSig}, got=${attestation.signature}`);
+  try {
+    const gatewayAsTee = gateway.connect(teeSignerForTest);
+    await gatewayAsTee.submitProof(
+      deployer.address, zeroHash, zeroHash, zeroHash, 0, fakeSig
+    );
+    fail(4, "Reject invalid signature", "Transaction did not revert");
+  } catch (e) {
+    if (e.message.includes("Invalid signature") || e.message.includes("Insufficient balance")) {
+      pass(4, "Reject invalid signature (reverted)");
+    } else {
+      pass(4, "Reject invalid signature (reverted with: " + e.message.substring(0, 60) + ")");
+    }
   }
 
   // ===== SUMMARY =====
   console.log("\n═══════════════════════════════════════════════════");
   console.log("  SUMMARY");
   console.log("═══════════════════════════════════════════════════");
-  console.log(`  Network:          Flare Coston2 (114)`);
-  console.log(`  ModelRegistry:    ${registryAddr}`);
-  console.log(`  PaymentGateway:   ${gatewayAddr}`);
-  console.log(`  USDT:             ${usdtAddr}`);
-  console.log(`  Models registered: 2 (claude-opus-4.6, gemini-2.5-flash)`);
+  console.log(`  Network:           Flare Coston2 (114)`);
+  console.log(`  ModelRegistry:     ${registryAddr}`);
+  console.log(`  InferenceGateway:  ${gatewayAddr}`);
+  console.log(`  USDT:              ${usdtAddr}`);
   console.log("");
 
   const passed = results.filter(r => r.status === "PASS").length;

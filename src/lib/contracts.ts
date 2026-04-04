@@ -2,8 +2,8 @@ export const MODEL_REGISTRY_ADDRESS =
   (process.env.NEXT_PUBLIC_MODEL_REGISTRY_ADDRESS as `0x${string}`) ||
   "0x0000000000000000000000000000000000000000";
 
-export const PAYMENT_GATEWAY_ADDRESS =
-  (process.env.NEXT_PUBLIC_PAYMENT_GATEWAY_ADDRESS as `0x${string}`) ||
+export const INFERENCE_GATEWAY_ADDRESS =
+  (process.env.NEXT_PUBLIC_INFERENCE_GATEWAY_ADDRESS as `0x${string}`) ||
   "0x0000000000000000000000000000000000000000";
 
 export const USDT0_ADDRESS =
@@ -27,7 +27,7 @@ export const MODEL_REGISTRY_ABI = [
   },
 ] as const;
 
-export const PAYMENT_GATEWAY_ABI = [
+export const INFERENCE_GATEWAY_ABI = [
   {
     inputs: [{ internalType: "uint256", name: "amount", type: "uint256" }],
     name: "deposit",
@@ -38,6 +38,71 @@ export const PAYMENT_GATEWAY_ABI = [
   {
     inputs: [{ internalType: "address", name: "", type: "address" }],
     name: "balances",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "inferenceCost",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "teeAddress",
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "user", type: "address" },
+      { internalType: "bytes32", name: "promptHash", type: "bytes32" },
+      { internalType: "bytes32", name: "responseHash", type: "bytes32" },
+      { internalType: "bytes32", name: "modelHash", type: "bytes32" },
+      { internalType: "uint256", name: "timestamp", type: "uint256" },
+      { internalType: "bytes", name: "signature", type: "bytes" },
+    ],
+    name: "submitProof",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    name: "proofs",
+    outputs: [
+      { internalType: "address", name: "user", type: "address" },
+      { internalType: "bytes32", name: "promptHash", type: "bytes32" },
+      { internalType: "bytes32", name: "responseHash", type: "bytes32" },
+      { internalType: "bytes32", name: "modelHash", type: "bytes32" },
+      { internalType: "uint256", name: "timestamp", type: "uint256" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "user", type: "address" }],
+    name: "getUserProofCount",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "user", type: "address" },
+      { internalType: "uint256", name: "index", type: "uint256" },
+    ],
+    name: "getUserProofAt",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "proofCount",
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
     type: "function",
@@ -54,10 +119,14 @@ export const PAYMENT_GATEWAY_ABI = [
   {
     anonymous: false,
     inputs: [
+      { indexed: true, internalType: "bytes32", name: "proofId", type: "bytes32" },
       { indexed: true, internalType: "address", name: "user", type: "address" },
-      { indexed: false, internalType: "uint256", name: "amount", type: "uint256" },
+      { indexed: false, internalType: "bytes32", name: "promptHash", type: "bytes32" },
+      { indexed: false, internalType: "bytes32", name: "responseHash", type: "bytes32" },
+      { indexed: false, internalType: "bytes32", name: "modelHash", type: "bytes32" },
+      { indexed: false, internalType: "uint256", name: "timestamp", type: "uint256" },
     ],
-    name: "InferenceCharged",
+    name: "ProofSubmitted",
     type: "event",
   },
 ] as const;

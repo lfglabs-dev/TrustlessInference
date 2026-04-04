@@ -1,7 +1,7 @@
 import { createPublicClient, http } from "viem";
 import {
-  PAYMENT_GATEWAY_ABI,
-  PAYMENT_GATEWAY_ADDRESS,
+  INFERENCE_GATEWAY_ABI,
+  INFERENCE_GATEWAY_ADDRESS,
 } from "@/lib/contracts";
 import { NextRequest } from "next/server";
 
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const balance = await viemClient.readContract({
-      address: PAYMENT_GATEWAY_ADDRESS,
-      abi: PAYMENT_GATEWAY_ABI,
+      address: INFERENCE_GATEWAY_ADDRESS,
+      abi: INFERENCE_GATEWAY_ABI,
       functionName: "balances",
       args: [address as `0x${string}`],
     });

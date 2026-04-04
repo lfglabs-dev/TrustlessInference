@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Wallet, ArrowUpRight } from "lucide-react";
+import { UsdtIcon } from "@/components/icons/usdt-icon";
 import { useState } from "react";
 import { formatUnits } from "viem";
 import { toast } from "sonner";
@@ -59,7 +60,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
+    <div className="mx-auto w-full max-w-2xl space-y-6 overflow-y-auto p-6">
       <div>
         <h1 className="text-2xl font-bold">Profile</h1>
         <p className="text-sm text-muted-foreground">
@@ -84,6 +85,7 @@ export default function ProfilePage() {
               USDT0 Balance
             </span>
             <div className="flex items-center gap-2">
+              <UsdtIcon />
               <span className="text-2xl font-bold">{formattedBalance}</span>
               <Badge variant="secondary">USDT0</Badge>
             </div>
