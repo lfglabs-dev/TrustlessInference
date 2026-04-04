@@ -6,6 +6,7 @@ import { ThemeProvider } from "next-themes";
 import { wagmiAdapter, wagmiConfig, projectId, coston2 } from "@/lib/wagmi";
 import { useState, type ReactNode, useRef } from "react";
 import { Toaster } from "@/components/ui/sonner";
+import { ModelProvider } from "@/components/chat/model-context";
 import { createAppKit } from "@reown/appkit/react";
 
 function useAppKitInit() {
@@ -37,7 +38,9 @@ export function Providers({ children }: { children: ReactNode }) {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-          {children}
+          <ModelProvider>
+            {children}
+          </ModelProvider>
           <Toaster />
         </ThemeProvider>
       </QueryClientProvider>
