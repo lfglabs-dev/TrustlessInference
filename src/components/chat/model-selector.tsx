@@ -13,8 +13,8 @@ const models = [
     color: "text-orange-500",
   },
   {
-    id: "google/gemini-2.5-pro",
-    name: "Gemini Pro",
+    id: "google/gemini-2.5-flash",
+    name: "Gemini Flash",
     provider: "Google",
     icon: Sparkles,
     color: "text-blue-500",
