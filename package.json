@@ -6,7 +6,9 @@
     "dev": "dotenvx run -f .env.cannes -- next dev",
     "build": "dotenvx run -f .env.cannes -- next build",
     "start": "dotenvx run -f .env.cannes -- next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "deploy:coston2": "dotenvx run -f .env.cannes -- bunx hardhat run scripts/deploy.cjs --network coston2",
+    "test:e2e:coston2": "dotenvx run -f .env.cannes -- bunx hardhat run scripts/e2e-test.cjs --network coston2"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.148",

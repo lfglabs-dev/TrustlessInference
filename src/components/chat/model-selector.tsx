@@ -17,8 +17,8 @@ const models = [
     icon: ClaudeIcon,
   },
   {
-    id: "google/gemini-2.5-pro",
-    name: "Gemini Pro",
+    id: "google/gemini-2.5-flash",
+    name: "Gemini Flash",
     icon: GeminiIcon,
   },
 ] as const;
