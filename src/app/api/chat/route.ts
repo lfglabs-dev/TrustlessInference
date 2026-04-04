@@ -1,13 +1,13 @@
-import { streamText } from "ai";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateAttestation, computeModelHash } from "@/lib/tee";
-import { createPublicClient, http } from "viem";
-import { MODEL_REGISTRY_ABI, MODEL_REGISTRY_ADDRESS } from "@/lib/contracts";
 import {
+  streamText,
   createUIMessageStream,
   createUIMessageStreamResponse,
   type UIMessage,
 } from "ai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { generateAttestation, computeModelHash } from "@/lib/tee";
+import { createPublicClient, http } from "viem";
+import { MODEL_REGISTRY_ABI, MODEL_REGISTRY_ADDRESS } from "@/lib/contracts";
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -43,6 +43,10 @@ export async function POST(req: Request) {
 
   if (onChainHash === zeroHash) {
     return Response.json({ error: "Model not registered" }, { status: 400 });
+  }
+
+  if (onChainHash !== expectedHash) {
+    return Response.json({ error: "Model hash mismatch" }, { status: 400 });
   }
 
   // Build prompt string for attestation

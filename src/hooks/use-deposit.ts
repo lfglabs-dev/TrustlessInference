@@ -1,12 +1,14 @@
 "use client";
 
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { waitForTransactionReceipt } from "wagmi/actions";
 import {
   PAYMENT_GATEWAY_ADDRESS,
   PAYMENT_GATEWAY_ABI,
   USDT0_ADDRESS,
   ERC20_ABI,
 } from "@/lib/contracts";
+import { wagmiConfig } from "@/lib/wagmi";
 import { parseUnits } from "viem";
 import { useState } from "react";
 
@@ -22,7 +24,7 @@ export function useDeposit() {
   async function deposit(amount: string) {
     const parsed = parseUnits(amount, 6); // USDT has 6 decimals
 
-    // Step 1: Approve
+    // Step 1: Approve and wait for confirmation
     setStep("approving");
     const approveTx = await writeContractAsync({
       address: USDT0_ADDRESS,
@@ -31,8 +33,9 @@ export function useDeposit() {
       args: [PAYMENT_GATEWAY_ADDRESS, parsed],
     });
     setTxHash(approveTx);
+    await waitForTransactionReceipt(wagmiConfig, { hash: approveTx });
 
-    // Step 2: Deposit
+    // Step 2: Deposit after approval is confirmed
     setStep("depositing");
     const depositTx = await writeContractAsync({
       address: PAYMENT_GATEWAY_ADDRESS,
