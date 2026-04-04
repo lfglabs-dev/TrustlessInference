@@ -1,68 +1,62 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
-import { Bot, Sparkles } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ClaudeIcon, GeminiIcon } from "@/components/icons/model-icons";
+import { useModel } from "./model-context";
 
 const models = [
   {
     id: "anthropic/claude-opus-4.6",
     name: "Claude Opus",
-    provider: "Anthropic",
-    icon: Bot,
-    color: "text-orange-500",
+    icon: ClaudeIcon,
   },
   {
     id: "google/gemini-2.5-pro",
     name: "Gemini Pro",
-    provider: "Google",
-    icon: Sparkles,
-    color: "text-blue-500",
+    icon: GeminiIcon,
   },
 ] as const;
 
 export type ModelId = (typeof models)[number]["id"];
 
-interface ModelSelectorProps {
-  selected: ModelId;
-  onSelect: (model: ModelId) => void;
-}
+const modelMap = Object.fromEntries(models.map((m) => [m.id, m])) as Record<
+  ModelId,
+  (typeof models)[number]
+>;
 
-export function ModelSelector({ selected, onSelect }: ModelSelectorProps) {
+export function ModelSelector() {
+  const { model, setModel } = useModel();
+  const current = modelMap[model];
+  const CurrentIcon = current.icon;
+
   return (
-    <div className="flex gap-3">
-      {models.map((model) => {
-        const Icon = model.icon;
-        const isSelected = selected === model.id;
-        return (
-          <Card
-            key={model.id}
-            role="radio"
-            aria-checked={isSelected}
-            tabIndex={0}
-            onClick={() => onSelect(model.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") onSelect(model.id);
-            }}
-            className={cn(
-              "flex-1 cursor-pointer transition-all",
-              isSelected
-                ? "border-primary ring-2 ring-primary/20"
-                : "hover:border-muted-foreground/30"
-            )}
-          >
-            <CardContent className="flex items-center gap-3 p-4">
-              <Icon className={cn("h-6 w-6", model.color)} />
-              <div>
-                <p className="font-medium text-sm">{model.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {model.provider}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
+    <Select
+      value={model}
+      onValueChange={(value) => setModel(value as ModelId)}
+    >
+      <SelectTrigger size="sm">
+        <SelectValue>
+          <CurrentIcon />
+          {current.name}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent align="end" alignItemWithTrigger={false}>
+        {models.map((m) => {
+          const Icon = m.icon;
+          return (
+            <SelectItem key={m.id} value={m.id}>
+              <Icon />
+              {m.name}
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }

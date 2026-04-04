@@ -9,13 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Send } from "lucide-react";
 import { ChatMessage } from "./chat-message";
-import { ModelSelector, type ModelId } from "./model-selector";
+import { useModel } from "./model-context";
 import { TeeStatus } from "./tee-status";
 import { AttestationCard } from "./attestation-card";
 import type { Attestation } from "@/lib/tee";
 
 export function ChatPanel() {
-  const [model, setModel] = useState<ModelId>("anthropic/claude-opus-4.6");
+  const { model } = useModel();
   const [teeStep, setTeeStep] = useState(-1);
   const [input, setInput] = useState("");
   const { address } = useAccount();
@@ -88,10 +88,6 @@ export function ChatPanel() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="border-b p-4">
-        <ModelSelector selected={model} onSelect={setModel} />
-      </div>
-
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="mx-auto max-w-2xl space-y-1">
           {messages.length === 0 && (

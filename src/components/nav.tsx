@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WalletButton } from "./wallet-button";
 import { ThemeToggle } from "./theme-toggle";
+import { ModelSelector } from "./chat/model-selector";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -39,6 +40,7 @@ export function Nav() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <ModelSelector />
           <ThemeToggle />
           <WalletButton />
         </div>
