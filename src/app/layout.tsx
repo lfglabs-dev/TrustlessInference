@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { Providers } from "@/components/providers";
-import { Nav } from "@/components/nav";
 
 const etBook = localFont({
   src: [
@@ -43,10 +41,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex h-screen flex-col overflow-hidden">
-        <Providers>
-          <Nav />
-          <main className="flex min-h-0 flex-1 flex-col">{children}</main>
-        </Providers>
+        {children}
       </body>
     </html>
   );
